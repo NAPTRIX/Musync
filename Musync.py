@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 import time
@@ -14,10 +13,10 @@ class MusicState:
         self.is_playing = False
         self.start_time = None
         self.current_position = 0
-        self.clients = {}  # ws: {id, username, is_admin}
+        self.clients = {}  # ws: {id, username, is_admin, can_upload}
         self.admin_id = None
         self.chat_messages = []
-        self.song_requests = []  # List of {id, song_name, requested_by, status}
+        self.song_requests = []  # List of {id, song_name, requested_by, user_id, status}
         self.upload_chunks = {}  # Temporary storage for chunked uploads
         
     def get_current_position(self):
@@ -135,8 +134,8 @@ HTML_CONTENT = """
             max-width: 1920px;
             margin: 0 auto;
             width: 100%;
-            height: calc(100vh - 70px);
             overflow: hidden;
+            min-height: 0;
         }
 
         .panel {
@@ -148,7 +147,7 @@ HTML_CONTENT = """
             flex-direction: column;
             overflow: hidden;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-            height: 100%;
+            min-height: 0;
         }
 
         .panel-header {
@@ -201,24 +200,36 @@ HTML_CONTENT = """
             border-top: 1px solid var(--glass-border);
             background: rgba(0,0,0,0.2);
             flex-shrink: 0;
-            max-height: 30%;
-            display: flex; flex-direction: column;
+            max-height: 200px;
+            display: flex; 
+            flex-direction: column;
+            overflow: hidden;
         }
         
-        #requestsList { overflow-y: auto; flex: 1; min-height: 0; }
+        #requestsList { 
+            overflow-y: auto; 
+            flex: 1; 
+            min-height: 0;
+        }
 
         .player-panel {
             grid-column: 2;
-            justify-content: center; align-items: center;
             position: relative;
-            background: radial-gradient(circle at center, rgba(255,255,255,0.03) 0%, transparent 70%);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
         }
 
         .vinyl-container {
-            width: 240px; height: 240px; border-radius: 50%;
+            width: min(180px, 25vh); 
+            height: min(180px, 25vh); 
+            border-radius: 50%;
             background: conic-gradient(from 0deg, #111, #222, #111);
             box-shadow: 0 10px 60px rgba(0,0,0,0.5);
-            margin-bottom: 40px; position: relative;
+            position: relative;
             display: flex; align-items: center; justify-content: center;
             border: 4px solid rgba(255,255,255,0.05);
             animation: spin 10s linear infinite; animation-play-state: paused;
@@ -228,21 +239,39 @@ HTML_CONTENT = """
         @keyframes spin { 100% { transform: rotate(360deg); } }
         
         .vinyl-inner {
-            width: 80px; height: 80px; border-radius: 50%;
+            width: 33%; 
+            height: 33%; 
+            border-radius: 50%;
             background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
             box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
         }
 
-        .song-info { text-align: center; margin-bottom: 40px; width: 100%; padding: 0 40px; }
+        .song-info { 
+            text-align: center; 
+            width: 100%; 
+            flex-shrink: 0;
+            max-width: 600px;
+        }
         .song-name {
-            font-size: 32px; font-weight: 700; margin-bottom: 8px;
+            font-size: clamp(20px, 4vw, 32px); 
+            font-weight: 700; 
+            margin-bottom: 6px;
             background: linear-gradient(to right, #fff, #ccc);
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .time-display { font-family: 'Inter', monospace; color: var(--text-muted); font-size: 14px; letter-spacing: 1px; }
+        .time-display { 
+            font-family: 'Inter', monospace; 
+            color: var(--text-muted); 
+            font-size: 13px; 
+            letter-spacing: 1px; 
+        }
 
-        .progress-container { width: 80%; margin-bottom: 30px; }
+        .progress-container { 
+            width: 80%; 
+            flex-shrink: 0;
+            max-width: 600px;
+        }
         .progress-bar {
             width: 100%; height: 6px; background: rgba(255, 255, 255, 0.1);
             border-radius: 10px; cursor: pointer; position: relative; overflow: hidden;
@@ -256,13 +285,14 @@ HTML_CONTENT = """
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 20px;
+            gap: 16px;
             width: 100%;
+            flex-shrink: 0;
         }
 
         .controls {
-            display: flex; gap: 24px; align-items: center;
-            background: rgba(255, 255, 255, 0.05); padding: 16px 32px;
+            display: flex; gap: 20px; align-items: center;
+            background: rgba(255, 255, 255, 0.05); padding: 12px 28px;
             border-radius: 100px; border: 1px solid var(--glass-border);
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
             flex-shrink: 0;
@@ -271,6 +301,7 @@ HTML_CONTENT = """
         .volume-control {
             display: flex; align-items: center; gap: 10px;
             width: 200px;
+            flex-shrink: 0;
         }
         
         .volume-slider {
@@ -282,6 +313,26 @@ HTML_CONTENT = """
             -webkit-appearance: none; width: 12px; height: 12px;
             background: #fff; border-radius: 50%; cursor: pointer;
             box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        .user-meta-wrapper {
+            margin-top: auto;
+            padding: 16px 20px;
+            border-top: 1px solid var(--glass-border);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+            min-height: 48px;
+        }
+
+        .user-meta {
+            font-size: 11px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-muted);
         }
 
         .chat-panel { grid-column: 3; }
@@ -324,7 +375,7 @@ HTML_CONTENT = """
         button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); transform: scale(1.1); color: #fff; }
         button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
         
-        #playBtn, #pauseBtn { background: var(--text-main); color: var(--bg-dark); width: 56px; height: 56px; }
+        #playBtn, #pauseBtn { background: var(--text-main); color: var(--bg-dark); width: 52px; height: 52px; }
         #playBtn:hover:not(:disabled), #pauseBtn:hover:not(:disabled) {
             background: #fff; box-shadow: 0 0 20px rgba(255, 255, 255, 0.4); transform: scale(1.1);
         }
@@ -365,15 +416,60 @@ HTML_CONTENT = """
         }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        .user-meta { position: absolute; bottom: 20px; font-size: 12px; color: var(--text-muted); }
-        .remove-btn { opacity: 0; transition: all 0.2s; }
+        .remove-btn { 
+            opacity: 0; 
+            transition: all 0.2s; 
+            padding: 4px 8px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 4px;
+            color: var(--danger);
+            font-size: 11px;
+        }
         .playlist-item:hover .remove-btn { opacity: 1; }
-        .remove-btn:hover { color: var(--danger); }
+        .remove-btn:hover { 
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger); 
+        }
         input[type="file"] { display: none; }
         
         .request-item {
             background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px;
             margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 11px;
+        }
+
+        .request-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .request-approve-btn,
+        .request-reject-btn {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .request-approve-btn {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .request-approve-btn:hover {
+            background: rgba(16, 185, 129, 0.3);
+        }
+
+        .request-reject-btn {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+
+        .request-reject-btn:hover {
+            background: rgba(239, 68, 68, 0.3);
         }
 
         .icon { width: 20px; height: 20px; fill: currentColor; }
@@ -429,9 +525,9 @@ HTML_CONTENT = """
             
             <div class="playlist scrollable-content" id="playlist"></div>
             
-            <div class="song-requests" id="songRequestsSection" style="display: none;">
-                <h3 style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px;">Request Queue</h3>
-                <div class="chat-input-area" style="padding: 0; border: none; margin-bottom: 10px;">
+            <div class="song-requests" id="songRequestsSection">
+                <h3 style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px;" id="requestsHeader">Song Requests</h3>
+                <div class="chat-input-area" id="requestInputArea" style="padding: 0; border: none; margin-bottom: 10px; display: none;">
                     <input type="text" class="chat-input" id="requestInput" placeholder="Song name..." style="padding: 8px 12px; font-size: 12px;">
                     <button class="send-btn" id="requestBtn" style="padding: 0 12px;">+</button>
                 </div>
@@ -483,8 +579,10 @@ HTML_CONTENT = """
                 </div>
             </div>
             
-            <div class="user-meta" id="userInfo">
-                <span id="userCount">0</span> listeners • <span id="userRole">Guest</span>
+            <div class="user-meta-wrapper">
+                <div class="user-meta" id="userInfo">
+                    <span id="userCount">0</span> listeners • <span id="userRole">Guest</span>
+                </div>
             </div>
         </div>
         
@@ -542,6 +640,8 @@ HTML_CONTENT = """
             requestBtn: document.getElementById('requestBtn'),
             requestsList: document.getElementById('requestsList'),
             songRequestsSection: document.getElementById('songRequestsSection'),
+            requestInputArea: document.getElementById('requestInputArea'),
+            requestsHeader: document.getElementById('requestsHeader'),
             aliasInput: document.getElementById('aliasInput'),
             saveAliasBtn: document.getElementById('saveAliasBtn'),
             volumeSlider: document.getElementById('volumeSlider')
@@ -550,6 +650,7 @@ HTML_CONTENT = """
         let ws;
         let serverTimeOffset = 0;
         let isAdmin = false;
+        let canUpload = false;
         let userId = null;
         let username = localStorage.getItem('sync_username') || 'Guest-' + Math.floor(Math.random() * 1000);
         let isSeeking = false;
@@ -561,13 +662,11 @@ HTML_CONTENT = """
                 hash = str.charCodeAt(i) + ((hash << 5) - hash);
             }
             const h = Math.abs(hash) % 360;
-            // Use HSL for bright, distinct colors (Saturation 70%, Lightness 60%)
             return `hsl(${h}, 70%, 60%)`;
         }
 
         // --- Init UI ---
         elements.aliasInput.value = username;
-        // Restore volume
         const savedVolume = localStorage.getItem('sync_volume');
         if(savedVolume !== null) {
             audio.volume = parseFloat(savedVolume);
@@ -589,7 +688,6 @@ HTML_CONTENT = """
                 localStorage.setItem('sync_username', username);
                 ws.send(JSON.stringify({ type: 'set_username', username }));
                 
-                // Visual feedback
                 const originalText = elements.saveAliasBtn.textContent;
                 elements.saveAliasBtn.textContent = "Saved!";
                 elements.saveAliasBtn.style.background = "var(--success)";
@@ -599,6 +697,16 @@ HTML_CONTENT = """
                 }, 1500);
             }
         });
+
+        function updateUploadUI() {
+            if (canUpload) {
+                elements.uploadLabel.classList.remove('disabled');
+                elements.fileInput.disabled = false;
+            } else {
+                elements.uploadLabel.classList.add('disabled');
+                elements.fileInput.disabled = true;
+            }
+        }
 
         function togglePlayPause(isPlaying) {
             if (isPlaying) {
@@ -692,9 +800,7 @@ HTML_CONTENT = """
                         <span class="song-title">${song.name}</span>
                     </div>
                     ${isAdmin ? `
-                    <button class="remove-btn" data-id="${song.id}">
-                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                    </button>` : ''}
+                    <button class="remove-btn" data-id="${song.id}">Remove</button>` : ''}
                 </div>
             `).join('');
             
@@ -721,7 +827,6 @@ HTML_CONTENT = """
             messageDiv.className = `message ${msg.isSystem ? 'system' : ''}`;
             const time = new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
             
-            // Generate color based on User ID/Name to keep it consistent
             const userColor = msg.username ? stringToColor(msg.username) : 'var(--accent-secondary)';
             
             messageDiv.innerHTML = `
@@ -736,28 +841,50 @@ HTML_CONTENT = """
         }
         
         function renderRequests(requests) {
-            if (!isAdmin || requests.length === 0) {
+            const pending = requests.filter(r => r.status === 'pending');
+            
+            if (!isAdmin) {
                 elements.requestsList.innerHTML = '';
                 return;
             }
-            elements.requestsList.innerHTML = requests.filter(r => r.status === 'pending').map(req => `
+            
+            // Show the requests section for admin if there are pending requests
+            if (pending.length === 0) {
+                elements.requestsList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 10px; font-size: 11px;">No pending requests</div>';
+                return;
+            }
+            
+            elements.requestsList.innerHTML = pending.map(req => `
                 <div class="request-item">
                     <div style="flex:1;">
                         <div style="font-weight:600; color:white; margin-bottom:2px;">${req.song_name}</div>
-                        <div style="color:var(--text-muted); font-size:10px;">REQ: ${req.requested_by}</div>
+                        <div style="color:var(--text-muted); font-size:10px;">by ${req.requested_by}</div>
                     </div>
-                    <div style="display:flex; gap: 4px;">
-                        <button class="approve-btn" data-id="${req.id}" style="padding:4px; border-radius:4px; background: rgba(16, 185, 129, 0.2); color: #10b981;">✓</button>
-                        <button class="reject-btn" data-id="${req.id}" style="padding:4px; border-radius:4px; background: rgba(239, 68, 68, 0.2); color: #ef4444;">✕</button>
+                    <div class="request-actions">
+                        <button class="request-approve-btn" data-id="${req.id}" data-user="${req.user_id}">✓</button>
+                        <button class="request-reject-btn" data-id="${req.id}">✕</button>
                     </div>
                 </div>
             `).join('');
             
-            document.querySelectorAll('.approve-btn').forEach(btn => {
-                btn.addEventListener('click', () => ws.send(JSON.stringify({ type: 'handle_request', request_id: btn.dataset.id, action: 'approve' })));
+            document.querySelectorAll('.request-approve-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    ws.send(JSON.stringify({ 
+                        type: 'handle_request', 
+                        request_id: btn.dataset.id, 
+                        user_id: btn.dataset.user,
+                        action: 'approve' 
+                    }));
+                });
             });
-            document.querySelectorAll('.reject-btn').forEach(btn => {
-                btn.addEventListener('click', () => ws.send(JSON.stringify({ type: 'handle_request', request_id: btn.dataset.id, action: 'reject' })));
+            document.querySelectorAll('.request-reject-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    ws.send(JSON.stringify({ 
+                        type: 'handle_request', 
+                        request_id: btn.dataset.id, 
+                        action: 'reject' 
+                    }));
+                });
             });
         }
         
@@ -782,13 +909,21 @@ HTML_CONTENT = """
                 
                 if (data.type === 'init') {
                     isAdmin = data.is_admin;
+                    canUpload = data.can_upload;
                     userId = data.user_id;
                     elements.userRole.innerHTML = isAdmin ? '<span style="background:var(--accent-primary); padding:2px 6px; border-radius:4px; font-size:10px;">ADMIN</span>' : 'Listener';
-                    if (!isAdmin) {
-                        elements.uploadLabel.classList.add('disabled');
-                        elements.fileInput.disabled = true;
-                        elements.songRequestsSection.style.display = 'flex';
+                    
+                    if (isAdmin) {
+                        // Admin sees "Pending Requests" header and no input
+                        elements.requestsHeader.textContent = 'Pending Requests';
+                        elements.requestInputArea.style.display = 'none';
+                    } else {
+                        // Non-admin sees "Request Queue" header with input
+                        elements.requestsHeader.textContent = 'Request Queue';
+                        elements.requestInputArea.style.display = 'flex';
                     }
+                    
+                    updateUploadUI();
                 }
                 else if (data.type === 'pong') {
                     const roundTrip = performance.now() - data.client_time;
@@ -849,6 +984,10 @@ HTML_CONTENT = """
                 else if (data.type === 'playlist_update') renderPlaylist(data.playlist, data.current_index);
                 else if (data.type === 'chat_message') addChatMessage(data);
                 else if (data.type === 'requests_update') renderRequests(data.requests);
+                else if (data.type === 'upload_permission') {
+                    canUpload = data.can_upload;
+                    updateUploadUI();
+                }
             };
         }
         
@@ -891,6 +1030,14 @@ HTML_CONTENT = """
         audio.addEventListener('ended', () => { togglePlayPause(false); ws.send(JSON.stringify({ type: 'next' })); });
         setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping', client_time: performance.now() })); }, 5000);
         
+        // Fix layout breaking on window resize (F12, etc)
+        window.addEventListener('resize', () => {
+            // Force layout recalculation
+            document.body.style.display = 'none';
+            document.body.offsetHeight; // Trigger reflow
+            document.body.style.display = 'flex';
+        });
+        
         connect();
     </script>
 </body>
@@ -898,7 +1045,7 @@ HTML_CONTENT = """
 """
 
 async def websocket_handler(request):
-    ws = web.WebSocketResponse(heartbeat=30, max_msg_size=0)  # No size limit on messages
+    ws = web.WebSocketResponse(heartbeat=30, max_msg_size=0)
     await ws.prepare(request)
     
     user_id = str(uuid.uuid4())
@@ -910,13 +1057,15 @@ async def websocket_handler(request):
     state.clients[ws] = {
         'id': user_id,
         'username': None,
-        'is_admin': is_admin
+        'is_admin': is_admin,
+        'can_upload': is_admin  # Admins can always upload
     }
     
     await ws.send_json({
         'type': 'init',
         'user_id': user_id,
-        'is_admin': is_admin
+        'is_admin': is_admin,
+        'can_upload': is_admin
     })
     
     await broadcast_state()
@@ -945,7 +1094,7 @@ async def websocket_handler(request):
                         'server_time': time.time() * 1000
                     })
                 
-                elif data['type'] == 'upload_chunk' and user_info['is_admin']:
+                elif data['type'] == 'upload_chunk' and user_info['can_upload']:
                     upload_id = data['upload_id']
                     
                     if upload_id not in state.upload_chunks:
@@ -957,9 +1106,7 @@ async def websocket_handler(request):
                     
                     state.upload_chunks[upload_id]['chunks'][data['chunk_index']] = data['chunk_data']
                     
-                    # Check if all chunks received
                     if len(state.upload_chunks[upload_id]['chunks']) == data['total_chunks']:
-                        # Reconstruct the file
                         full_data = ''.join([
                             state.upload_chunks[upload_id]['chunks'][i] 
                             for i in range(data['total_chunks'])
@@ -972,7 +1119,6 @@ async def websocket_handler(request):
                             'data': full_data
                         })
                         
-                        # Clean up
                         del state.upload_chunks[upload_id]
                         
                         await broadcast_state()
@@ -1051,10 +1197,25 @@ async def websocket_handler(request):
                         'id': str(uuid.uuid4()),
                         'song_name': data['song_name'],
                         'requested_by': user_info['username'],
+                        'user_id': user_info['id'],
                         'status': 'pending'
                     }
                     state.song_requests.append(request)
-                    await broadcast_requests()
+                    
+                    # Broadcast to all clients immediately
+                    await broadcast({
+                        'type': 'requests_update',
+                        'requests': state.song_requests
+                    })
+                    
+                    # Also send chat notification
+                    await broadcast_chat({
+                        'username': 'System',
+                        'text': f"🎵 {user_info['username']} requested: {data['song_name']}",
+                        'timestamp': time.time() * 1000,
+                        'isSystem': True,
+                        'isAdmin': False
+                    })
                 
                 elif data['type'] == 'handle_request' and user_info['is_admin']:
                     request_id = data['request_id']
@@ -1065,9 +1226,21 @@ async def websocket_handler(request):
                             req['status'] = action
                             
                             if action == 'approve':
+                                # Grant upload permission to the requesting user
+                                requester_user_id = data.get('user_id')
+                                if requester_user_id:
+                                    for client_ws, client_info in state.clients.items():
+                                        if client_info['id'] == requester_user_id:
+                                            client_info['can_upload'] = True
+                                            await client_ws.send_json({
+                                                'type': 'upload_permission',
+                                                'can_upload': True
+                                            })
+                                            break
+                                
                                 await broadcast_chat({
                                     'username': 'System',
-                                    'text': f"Song request '{req['song_name']}' by {req['requested_by']} was approved! Admin, please upload this song.",
+                                    'text': f"✅ Song request '{req['song_name']}' by {req['requested_by']} was approved! {req['requested_by']} can now upload the song.",
                                     'timestamp': time.time() * 1000,
                                     'isSystem': True,
                                     'isAdmin': False
@@ -1075,7 +1248,7 @@ async def websocket_handler(request):
                             else:
                                 await broadcast_chat({
                                     'username': 'System',
-                                    'text': f"Song request '{req['song_name']}' by {req['requested_by']} was rejected.",
+                                    'text': f"❌ Song request '{req['song_name']}' by {req['requested_by']} was rejected.",
                                     'timestamp': time.time() * 1000,
                                     'isSystem': True,
                                     'isAdmin': False
@@ -1097,15 +1270,16 @@ async def websocket_handler(request):
         
         if user_info and user_info['id'] == state.admin_id:
             state.admin_id = None
-            # Promote next user to admin
             if state.clients:
                 next_admin_ws = list(state.clients.keys())[0]
                 state.clients[next_admin_ws]['is_admin'] = True
+                state.clients[next_admin_ws]['can_upload'] = True
                 state.admin_id = state.clients[next_admin_ws]['id']
                 await next_admin_ws.send_json({
                     'type': 'init',
                     'user_id': state.admin_id,
-                    'is_admin': True
+                    'is_admin': True,
+                    'can_upload': True
                 })
         
         await broadcast_state()
@@ -1150,7 +1324,7 @@ async def index_handler(request):
     return web.Response(text=HTML_CONTENT, content_type='text/html')
 
 def create_app():
-    app = web.Application(client_max_size=0)  # No HTTP body size limit
+    app = web.Application(client_max_size=0)
     
     cors = aiohttp_cors.setup(app, defaults={
         "*": aiohttp_cors.ResourceOptions(
@@ -1169,6 +1343,5 @@ def create_app():
     return app
 
 if __name__ == '__main__':
-    
     app = create_app()
-    web.run_app(app, host='127.0.0.1', port=8080)
+    web.run_app(app, host='0.0.0.0', port=8080)
