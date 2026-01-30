@@ -2,7 +2,7 @@
 
 A feature-rich Python web application that synchronizes audio playback across all connected clients worldwide with <20ms delay. Includes playlist management, real-time chat, admin controls, and song requests.
 
-![alt text](https://raw.githubusercontent.com/NAPTRIX/Musync/refs/heads/main/demo.png?token=GHSAT0AAAAAADRLALNAP35ASVUPVAHGML5E2L44SFA)
+![alt text](https://raw.githubusercontent.com/NAPTRIX/Musync/refs/heads/main/Demo.png)
 
 ## Features
 
